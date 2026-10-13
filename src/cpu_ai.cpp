@@ -187,10 +187,11 @@ bool CpuAi::endDriftHere(const Path& p) const{
 
 void CpuAi::reset(const Setup& setup){
     setup_=setup;route_=setup.route&&setup.route->size()>=2?setup.route:nullptr;
-    racers_={};groups_={};rng_=setup.seed?setup.seed:1;raceStarted_=false;
+    racers_={};groups_={};rng_=setup.seed?setup.seed:1;raceStarted_=false;obstacles_.clear();obstaclesValid_=false;
     rmState=0;rmFrame=0;rmDuration=0;rmPhase=0;rmInterval=-1;advantageEnabled=false;advantageState=0;advantageValue=0;
     topType=2;cpuCount=humanCount=0;
     if(!route_)return;
+    if(auto* director=Field::ObjectDirector::Instance())obstacles_.reserve(director->objects().size());
     auto* objects=Kart::KartObjectManager::Instance();
     const unsigned engine=std::min(setup.engineClass,2u),mode=std::min(setup.cpuMode,2u);
     // Start order: grid slots along the start direction (front-most first).
@@ -725,26 +726,34 @@ bool CpuAi::findObstacle(unsigned i){
     if(auto* director=Field::ObjectDirector::Instance();director&&!star&&!mega&&!kart->move()->bulletActive()){
         // Only the normal-kart column of GeoHitTableKart is loaded here.
         const Field::ObjectBase* nearest=nullptr;float best=0;
+        Vec3 nearestPosition{};
         if(!obstaclesValid_){
             obstacles_.clear();
-            for(const auto* obj:director->objects())if(obj)obstacles_.push_back({obj,native(obj->pos()),400.f+obj->getCollisionRadius()});
+            const auto& objects=director->objects();
+            if(obstacles_.capacity()<objects.size())obstacles_.reserve(objects.size());
+            for(const auto* obj:objects)if(obj){
+                const float reach=400.f+obj->getCollisionRadius();
+                obstacles_.push_back({obj,native(obj->pos()),reach*reach});
+            }
             obstaclesValid_=true;
         }
         for(const auto& o:obstacles_){
             const Vec3 delta=o.position-a.end;const float dist=dot(delta,delta);
-            if(dist<o.reach*o.reach&&(!nearest||dist<best)){nearest=static_cast<const Field::ObjectBase*>(o.object);best=dist;}
+            if(dist<o.reachSquared&&(!nearest||dist<best)){
+                nearest=static_cast<const Field::ObjectBase*>(o.object);nearestPosition=o.position;best=dist;
+            }
         }
-        if(nearest&&std::fabs(nearest->pos().y-a.end.y)<=600.f){
+        if(nearest&&std::fabs(nearestPosition.y-a.end.y)<=600.f){
             const auto& table=director->hitTableKart();const s16 slot=table.slot(nearest->id());
             if(slot!=-1&&table.reaction(slot)!=Kart::Reaction::None){
-                found=true;a.chanceWeight=1.5f;a.steerWeight=1.5f;a.obstacle=native(nearest->pos());
+                found=true;a.chanceWeight=1.5f;a.steerWeight=1.5f;a.obstacle=nearestPosition;
             }
         }
     }
     if(!found&&!star&&!mega){
         for(unsigned k=0;k<hazardCount_;++k){
-            const Vec3 delta=hazards_[k]-a.end;const float reach=400.f+hazardRadii_[k];
-            if(std::fabs(delta.y)>600.f||dot(delta,delta)>=reach*reach)continue;
+            const Vec3 delta=hazards_[k]-a.end;
+            if(std::fabs(delta.y)>600.f||dot(delta,delta)>=hazardReachSquared_[k])continue;
             found=true;a.chanceWeight=1.f;a.steerWeight=.6f;a.obstacle=hazards_[k];break;
         }
     }

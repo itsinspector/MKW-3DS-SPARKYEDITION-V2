@@ -55,7 +55,9 @@ public:
     static constexpr unsigned MaxHazards=32;
     void setHazards(const Vec3* positions,const float* radii,unsigned count){
         hazardCount_=std::min(count,MaxHazards);
-        for(unsigned k=0;k<hazardCount_;++k){hazards_[k]=positions[k];hazardRadii_[k]=radii[k];}
+        for(unsigned k=0;k<hazardCount_;++k){
+            hazards_[k]=positions[k];const float reach=400.f+radii[k];hazardReachSquared_[k]=reach*reach;
+        }
     }
     unsigned routePoint(unsigned racer) const { return racer<Capacity?racers_[racer].path.cur:0; }
     Vec3 target(unsigned racer) const { return racer<Capacity?racers_[racer].path.target:Vec3{}; }
@@ -199,11 +201,11 @@ private:
     std::array<int,Capacity> sortedHumans{};int humanCount=0;
     uint32_t rng_=1;
     uint32_t frame_=0;
-    std::array<Vec3,MaxHazards> hazards_{};std::array<float,MaxHazards> hazardRadii_{};unsigned hazardCount_=0;
+    std::array<Vec3,MaxHazards> hazards_{};std::array<float,MaxHazards> hazardReachSquared_{};unsigned hazardCount_=0;
     bool raceStarted_=false;
     // Course objects' positions and probe reach for this step's findObstacle
     // calls (objects only move in the Kinoko step that follows).
-    struct ObstacleProbe {const void* object;Vec3 position;float reach;};
+    struct ObstacleProbe {const void* object;Vec3 position;float reachSquared;};
     std::vector<ObstacleProbe> obstacles_;bool obstaclesValid_=false;
 };
 }
