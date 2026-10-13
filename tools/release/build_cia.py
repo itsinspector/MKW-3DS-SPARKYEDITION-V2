@@ -109,7 +109,6 @@ def stage_tools():
     if not shutil.which('node'):raise SystemExit('Missing Node.js (https://nodejs.org), used by the model exporters')
 
 def stage_sources():
-    if all((ROOT/'vendor'/n).is_dir() for n in ('kinoko','noclip','gclib','citro3d')):log('sources present');return
     run([sys.executable,'tools/bootstrap.py'])
 
 def stage_disc(disc):
