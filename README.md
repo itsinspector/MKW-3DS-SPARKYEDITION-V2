@@ -58,7 +58,8 @@ You need a 3DS with custom firmware ([3ds.hacks.guide](https://3ds.hacks.guide))
 1. Copy `mkw-3ds.cia` to your SD card and install it with FBI.
 2. For sound, run DSP1 once to dump your sound firmware.
 
-New 3DS / New 2DS run at 60 FPS (30 FPS with the 3D slider up); Old 3DS / 2DS at 30 FPS.
+The game targets 60 FPS on Old and New 3DS in 2D; New 3DS stereo targets 30 FPS.
+Old 3DS may miss refreshes if a frame takes longer than the available time.
 
 **Please don't share built CIAs**: they contain Nintendo's game files. Share this builder instead.
 
@@ -113,6 +114,7 @@ and copy `build/release/sd-card/3ds` to your SD card again.
 | L | Use item |
 | START | Pause |
 | SELECT | Speedometer on/off |
+| SELECT + D-pad left/right (Old 3DS) | Decrease/increase scenery render distance |
 | Touch screen | Switch the bottom-screen map view |
 
 ## Contributing

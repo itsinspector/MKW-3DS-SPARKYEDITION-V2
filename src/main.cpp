@@ -434,13 +434,20 @@ int main() {
     auto stepRetailFog=[&](mkw::Vec3 eye,unsigned steps){
         const auto* lighting=mkw::courseLighting(Courses[courseChoice].archive);
         const auto* map=K::System::CourseMap::Instance();
-        if(!lighting||!map)return;
-        const auto* race=K::System::RaceManager::Instance();
-        const K::EGG::Vector3f position(eye.x,eye.y,eye.z);
-        retailFogArea=map->getCurrentAreaID(s16(retailFogArea),position,K::System::MapdataAreaBase::Type(2));
-        const auto* area=retailFogArea>=0?map->getArea(u16(retailFogArea)):nullptr;
-        for(unsigned i=0;i<steps;++i)retailFog.step(*lighting,area?area->param(0):0,Courses[courseChoice].id==K::Course::DK_Summit,race?race->timer():0);
-        renderer.setRetailFog(retailFog.value);
+        if(lighting&&map){
+            const auto* race=K::System::RaceManager::Instance();
+            const K::EGG::Vector3f position(eye.x,eye.y,eye.z);
+            retailFogArea=map->getCurrentAreaID(s16(retailFogArea),position,K::System::MapdataAreaBase::Type(2));
+            const auto* area=retailFogArea>=0?map->getArea(u16(retailFogArea)):nullptr;
+            for(unsigned i=0;i<steps;++i)retailFog.step(*lighting,area?area->param(0):0,Courses[courseChoice].id==K::Course::DK_Summit,race?race->timer():0);
+        }
+        auto fog=retailFog.value;
+        if(mkw::renderQuality().whiteDistanceFog){
+            fog.enabled=1;fog.type=2;fog.color=0xffffffffu;
+            fog.start=mkw::renderQuality().objectRenderDistance*.65f;
+            fog.end=mkw::renderQuality().objectRenderDistance;
+        }
+        renderer.setRetailFog(fog);
     };
     // Set when the race faded out for a section change (the end-of-race menu):
     // the next menu page starts with the scene fader's fade in.
@@ -1160,16 +1167,16 @@ int main() {
     }
     std::vector<mkw::UiQuad> raceQuads;
     mkw::PresentationCadence presentation;
-    // Simulation stays at 60 Hz on every model. Old 3DS presents races at
-    // 30 FPS. New 3DS and New 2DS XL present at 60, or at 30 while the 3D
-    // slider is up (stereo draws every frame twice).
-    auto raceTicksPerFrame=[&]{return new3ds&&!renderer.stereoWanted()?1u:2u;};
+    // Target 60 FPS on Old 3DS and all 2D play. New 3DS stereo presents at 30
+    // because each slot draws both eyes; actual frame rate still depends on
+    // whether the hardware can finish the frame before the next refresh.
+    auto raceTicksPerFrame=[&]{return new3ds&&renderer.stereoWanted()?2u:1u;};
     presentation.setTicksPerSlot(raceTicksPerFrame());
     LOGF("race presentation every %u ticks",presentation.ticksPerSlot());
     // accumulator: simulation ticks owed (1 = 1/60 s). Races owe one per top-screen
     // refresh (59.83 Hz), as retail 3DS games step: a 60.00 Hz clock would gain a
     // tick on the refresh every 6 s and present that frame with an extra tick.
-    auto previous=svcGetSystemTick();double accumulator=0,physicsMs=0,maxPhysics=0;unsigned frames=0,restarts=0;
+    auto previous=svcGetSystemTick();double accumulator=0,physicsMs=0,maxPhysics=0;unsigned frames=0,restarts=0,renderDistanceNoticeUntil=0;
     u32 lastRefresh=C3D_FrameCounter(0);
     // The presented camera of the current step: drawn each frame and handed to the NW4R
     // effects as their process camera after each step.
@@ -1289,8 +1296,15 @@ int main() {
                 scenes.currentScene()->heap()->enableAllocation();scenes.changeSiblingScene(2);courseObjects.invalidate();
                 animationPass&=loadDriver();prepareGarageFixture();driftEffects.reset();raceEffects.reset();resetKartFx();accumulator=0;
             }
-            if(fullRace&&(down&KEY_SELECT))raceHud.speedometer=!raceHud.speedometer;
-            if(qaMode&&((down&KEY_SELECT)||(!replay&&(down&(KEY_X|KEY_Y))))){
+            const bool renderDistanceChord=fullRace&&mkw::renderQuality().reduced&&(held&KEY_SELECT)&&(held&(KEY_DLEFT|KEY_DRIGHT));
+            if(renderDistanceChord&&(down&(KEY_DLEFT|KEY_DRIGHT))){
+                auto& distance=mkw::renderQuality().objectRenderDistance;
+                if(down&KEY_DLEFT)distance=std::max(3000.f,distance-1000.f);
+                else distance=std::min(30000.f,distance+1000.f);
+                renderDistanceNoticeUntil=frames+120;
+            }
+            if(fullRace&&(down&KEY_SELECT)&&!renderDistanceChord)raceHud.speedometer=!raceHud.speedometer;
+            if(qaMode&&(((down&KEY_SELECT)&&!renderDistanceChord)||(!replay&&(down&(KEY_X|KEY_Y))))){
                 renderer.waitForGpu();
                 if(!replay&&(down&(KEY_X|KEY_Y))){
                     if(held&KEY_B)vehicleChoice=(vehicleChoice+mkw::VehiclesPerDriver+(down&KEY_Y?1:-1))%mkw::VehiclesPerDriver;
@@ -1308,8 +1322,10 @@ int main() {
             unsigned buttons=(held&KEY_A?1:0)|(held&KEY_B?2:0)|(held&KEY_L?4:0)|(held&KEY_R?(held&KEY_A?10:2):0);
             if(fullRace)buttons&=~4u; // Inventory owns L in races; retain stock mushrooms in trace/QA.
             auto trick=K::System::Trick::None;
-            if(held&KEY_DUP)trick=K::System::Trick::Up;else if(held&KEY_DDOWN)trick=K::System::Trick::Down;
-            else if(held&KEY_DLEFT)trick=K::System::Trick::Left;else if(held&KEY_DRIGHT)trick=K::System::Trick::Right;
+            if(!renderDistanceChord){
+                if(held&KEY_DUP)trick=K::System::Trick::Up;else if(held&KEY_DDOWN)trick=K::System::Trick::Down;
+                else if(held&KEY_DLEFT)trick=K::System::Trick::Left;else if(held&KEY_DRIGHT)trick=K::System::Trick::Right;
+            }
             // The D-pad is out of reach while the thumb steers on the Circle Pad.
             // The pad picks the direction like a Wii Remote shake with the stick
             // held; neutral is Up (a wheelie on bikes).
@@ -1913,7 +1929,7 @@ int main() {
             // Snapshot the original chassis transform before the player pose
             // worker reads VehicleAnimation's lazy matrices.
             const C3D_Mtx playerShadowTransform=vehicleAnimation.body();
-            const bool playerCastsShadow=vehicleShadow&&(!fullRace||!raceItems->hud(0).bullet);
+            const bool playerCastsShadow=mkw::renderQuality().shadowVolumes&&vehicleShadow&&(!fullRace||!raceItems->hud(0).bullet);
             // Test fixtures count clips while posing: they pose on this thread.
             playerJobQueued=fullRace&&!animationTest&&!effectsTest&&mkw::jobWorker().running();
             if(playerJobQueued){playerJob.reset(&runJob<decltype(posePlayer)>,&posePlayer);mkw::jobWorker().submit(playerJob);}
@@ -1972,6 +1988,10 @@ int main() {
             // behind the screen; the full-screen wipe and the pause menu on the
             // screen plane.
             if(fullRace&&!intro.active()){auto* race=K::System::RaceManager::Instance();raceHud.drawOverlay(renderer,*raceItems,unsigned(race->stage()),race->timer(),raceGrid.rank(),raceGrid.lap(),raceGrid.finished(),physicsSteps,results.finishFrame(),results.hudSlide());
+                if(mkw::renderQuality().reduced&&frames<renderDistanceNoticeUntil){
+                    char distance[32];snprintf(distance,sizeof distance,"DISTANZA OGGETTI: %u",unsigned(mkw::renderQuality().objectRenderDistance));
+                    renderer.drawScreenText(distance,12,222,1.f,0xffffffffu);
+                }
                 if(timeTrial&&courseChoice<bestTimes.size()&&!results.hudGone()){
                     // Best time under the lap counter; NEW RECORD! once beaten.
                     char best[32];if(bestTimes[courseChoice]){char t[16];formatTime(t,sizeof t,bestTimes[courseChoice]);snprintf(best,sizeof best,"BEST %s",t);}else snprintf(best,sizeof best,"BEST -:--.---");

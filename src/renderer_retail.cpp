@@ -14,6 +14,7 @@
 // Everything is set once per frame or per submesh; no per-vertex CPU work.
 #include "mkw/renderer.hpp"
 #include <mkw/retail_lighting.hpp>
+#include <mkw/render_quality.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -177,7 +178,7 @@ void Renderer::retailEnvironment(const C3D_Mtx& modelView){
 
 bool Renderer::retailCombiners(const Submesh& s,const C3D_Mtx& modelView,bool backdrop,bool additive,uint32_t additiveRgb){
     // The sky pass (backdrop) is outside the course fog object in retail.
-    const bool fog=!backdrop&&(s.lighting&retail::Fog)&&fogVisible(retailFog_);
+    const bool fog=!backdrop&&((s.lighting&retail::Fog)||renderQuality().whiteDistanceFog)&&fogVisible(retailFog_);
     const unsigned channel=(s.lighting&retail::ChannelMask)>>retail::ChannelShift;
     const uint32_t fogColor=uint32_t(std::lround(retailFog_[4]*255.f))|uint32_t(std::lround(retailFog_[5]*255.f))<<8|
                             uint32_t(std::lround(retailFog_[6]*255.f))<<16|0xff000000u;
@@ -242,7 +243,7 @@ bool Renderer::retailCombiners(const Submesh& s,const C3D_Mtx& modelView,bool ba
             C3D_TexEnvSrc(e,C3D_RGB,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvFunc(e,C3D_RGB,GPU_ADD);
             C3D_TexEnvSrc(e,C3D_Alpha,GPU_PREVIOUS);C3D_TexEnvFunc(e,C3D_Alpha,GPU_REPLACE);
         }
-        if(fog){
+        if(fog&&n<6){
             // GX fog at the object's eye depth: lerp(fog colour, colour, 1-f).
             const float depth=-modelView.r[2].c[0];
             const float ze=(depth-retailFog_[2])/std::max(retailFog_[3]-retailFog_[2],1e-3f);

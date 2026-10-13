@@ -295,7 +295,7 @@ void CourseObjects::Impl::recordSky(){
 }
 void CourseObjects::Impl::recordObjects(){
     objects.clear();water.clear();
-    if(palm)for(const auto& matrix:palms)if(!renderQuality().tooSmall({palm->minimum,palm->maximum},matrix,camera))objects.records.push_back({ObjectDrawRecord::Plain,false,0,palm.get(),nullptr,0,0,0,0,0,matrix});
+    if(palm)for(const auto& matrix:palms)if(!renderQuality().tooFar({palm->minimum,palm->maximum},matrix,camera)&&!renderQuality().tooSmall({palm->minimum,palm->maximum},matrix,camera))objects.records.push_back({ObjectDrawRecord::Plain,false,0,palm.get(),nullptr,0,0,0,0,0,matrix});
     // Includes the children of paired escalators. Kinoko updates these transforms
     // after its 60 Hz step, including stops/reversals and the looping tread offset.
     // Query each frame so restart/map changes cannot leave stale scene pointers.
@@ -314,7 +314,9 @@ void CourseObjects::Impl::recordObjects(){
             else if(auto* deferred=deferredWrites()){
                 auto* w=static_cast<EscalatorWrite*>(deferred->allocate(sizeof write));*w=write;deferred->queue(writeEscalator,w);
             }else writeEscalator(const_cast<EscalatorWrite*>(&write));
-            objects.records.push_back({ObjectDrawRecord::Plain,false,0,&mesh,nullptr,0,0,0,0,0,objectMatrix(obj->transform(),obj->scale())});
+            const auto transform=objectMatrix(obj->transform(),obj->scale());
+            if(!renderQuality().tooFar({mesh.minimum,mesh.maximum},transform,camera))
+                objects.records.push_back({ObjectDrawRecord::Plain,false,0,&mesh,nullptr,0,0,0,0,0,transform});
         }
     }
     shadows.clear();
@@ -386,15 +388,17 @@ void CourseObjects::drawSky(Renderer& renderer,unsigned tick,Vec3 camera){
 }
 void ObjectDraw::shadow(ObjModel* m,const C3D_Mtx& transform){
     if(!renderQuality().shadowVolumes)return;
-    if(!m||!m->model||!view.model(transform).intersects(m->bounds))return;
+    if(!m||!m->model||renderQuality().tooFar(m->bounds,transform,camera)||!view.model(transform).intersects(m->bounds))return;
     shadows_.push_back({m->model.get(),transform});
 }
 void ObjectDraw::explosion(const C3D_Mtx& transform,float frame){
     if(!assets.explosion||!assets.explosionBank)return;
+    if(!backdrop&&renderQuality().tooFar({assets.explosion->minimum,assets.explosion->maximum},transform,camera))return;
     ObjectDrawRecord r;r.kind=ObjectDrawRecord::Explosion;r.frame=frame;r.transform=transform;
     list.records.push_back(r);
 }
 void ObjectDraw::plain(const Model& model,const C3D_Mtx& transform){
+    if(!backdrop&&renderQuality().tooFar({model.minimum,model.maximum},transform,camera))return;
     ObjectDrawRecord r;r.kind=ObjectDrawRecord::Plain;r.target=&model;r.transform=transform;
     list.records.push_back(r);
 }
@@ -406,7 +410,9 @@ void ObjectDraw::submit(ObjModel* m,const C3D_Mtx& transform,const Anim& source)
     // animationStep frames, so a skinned pose repeats instead of being skinned again.
     Anim anim=source;const float step=float(renderQuality().animationStep);
     if(m->crowd&&step>0&&anim.clip>=0&&!anim.palette)anim.frame=std::floor(anim.frame/step)*step;
-    if(!view.model(transform).intersects(anim.bounds?*anim.bounds:m->bounds))return;
+    const Bounds& bounds=anim.bounds?*anim.bounds:m->bounds;
+    if(!backdrop&&renderQuality().tooFar(bounds,transform,camera))return;
+    if(!view.model(transform).intersects(bounds))return;
     if(renderQuality().tooSmall(anim.bounds?*anim.bounds:m->bounds,transform,camera))return;
     const ObjectBank* bank=m->bank.get();
     // GPU-skinned meshes hold bone-local positions: unanimated, they draw the bind pose.

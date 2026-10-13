@@ -188,15 +188,15 @@ void RacerVisuals::draw(Renderer& renderer,const RaceItems& items,Vec3 viewer,un
     // already running. Draws keep their order below.
     for(unsigned i=11;i-->0;)if(d.queued[i])jobWorker().help(d.jobs[i]);
     std::array<Renderer::ShadowVolume,12> shadows{};unsigned shadowCount=0;
-    if(playerShadow&&playerTransform)shadows[shadowCount++]={playerShadow,*playerTransform};
+    if(renderQuality().shadowVolumes&&playerShadow&&playerTransform)shadows[shadowCount++]={playerShadow,*playerTransform};
     for(unsigned i=0;i<11;++i)if(auto* r=d.racers[i].get()){
         if(d.queued[i])jobWorker().finish(d.jobs[i]);else d.prepareRacer(i);
         const auto& out=d.prepared[i];
-        if(out.draw&&r->shadow&&d.frame.view.visible(*r->shadow,out.body))shadows[shadowCount++]={r->shadow.get(),out.body};
+        if(renderQuality().shadowVolumes&&out.draw&&r->shadow&&d.frame.view.visible(*r->shadow,out.body))shadows[shadowCount++]={r->shadow.get(),out.body};
     }
     // Submit all racers in one stencil batch: overlaps darken once. Resolve
     // before the racer models, so their own volumes cannot shade the casters.
-    renderer.drawShadowVolumes(shadows.data(),shadowCount,.5f);
+    if(renderQuality().shadowVolumes)renderer.drawShadowVolumes(shadows.data(),shadowCount,.5f);
     for(unsigned i=0;i<11;++i)if(auto* r=d.racers[i].get()){
         const auto& out=d.prepared[i];
         if(!out.draw)continue;

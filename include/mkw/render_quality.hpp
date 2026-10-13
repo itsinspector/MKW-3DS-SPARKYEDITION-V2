@@ -19,6 +19,9 @@ struct RenderQuality {
     float minScreenRatio=0;
     // Course objects switch to their authored -low LOD beyond this distance.
     float objectLowDistance=7000.f;
+    // Maximum visible distance for course objects; zero disables distance culling.
+    float objectRenderDistance=0.f;
+    bool whiteDistanceFog=false;
     // Retail stencil shadow volumes; bloom blur rounds (horizontal + vertical).
     bool shadowVolumes=true;
     unsigned bloomBlurRounds=2;
@@ -41,7 +44,7 @@ struct RenderQuality {
     void setReduced(bool on){
         *this=RenderQuality{};
         if(!on)return;
-        reduced=true;minScreenRatio=.015f;objectLowDistance=4000.f;
+        reduced=true;minScreenRatio=.015f;objectLowDistance=4000.f;objectRenderDistance=12000.f;whiteDistanceFog=true;
         shadowVolumes=false;bloomBlurRounds=1;boxSparkleRatio=.04f;particleBudget=96;kartEffectScreens=2;animationStep=4;vramCourseTextures=true;
     }
 #ifdef MKW_RENDER_QUALITY_C3D
@@ -49,6 +52,21 @@ struct RenderQuality {
     bool tooSmall(const Bounds& b,const C3D_Mtx& t,Vec3 camera) const {
         if(minScreenRatio<=0)return false;
         return screenRatio(b,t,camera)<minScreenRatio;
+    }
+    bool tooFar(const Bounds& b,const C3D_Mtx& t,Vec3 camera) const {
+        if(objectRenderDistance<=0)return false;
+        const Vec3 c=(b.minimum+b.maximum)*.5f,h=(b.maximum-b.minimum)*.5f;
+        const Vec3 w{t.r[0].x*c.x+t.r[0].y*c.y+t.r[0].z*c.z+t.r[0].w,
+                     t.r[1].x*c.x+t.r[1].y*c.y+t.r[1].z*c.z+t.r[1].w,
+                     t.r[2].x*c.x+t.r[2].y*c.y+t.r[2].z*c.z+t.r[2].w};
+        float scale=0;
+        for(unsigned col=0;col<3;++col){
+            const float x=t.r[0].c[3-col],y=t.r[1].c[3-col],z=t.r[2].c[3-col];
+            scale=std::max(scale,std::sqrt(x*x+y*y+z*z));
+        }
+        const float radius=length(h)*scale;
+        const float reach=objectRenderDistance+radius;
+        return dot(w-camera,w-camera)>reach*reach;
     }
     static float screenRatio(const Bounds& b,const C3D_Mtx& t,Vec3 camera){
         const Vec3 c=(b.minimum+b.maximum)*.5f,h=(b.maximum-b.minimum)*.5f;
